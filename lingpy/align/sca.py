@@ -348,10 +348,10 @@ class PSA(Pairwise):
         self.infile, suffix = os.path.splitext(os.path.basename(infile))
 
         # import the data from the input file
-        data = []
         if not suffix and os.path.exists(infile + '.psq'):
             infile = infile + '.psq'
 
+        data = []
         for line in util.read_text_file(infile, lines=True):
             if not line.startswith(self.comment):
                 data.append(line)
@@ -633,7 +633,7 @@ class Alignments(Wordlist):
 
         # dictionary to add new alignments class afterwards for providing quick
         # access
-        D = {}
+        D = {k: [''] for k in self}
 
         for k, d in self._meta['msa'][ref].items():
             ralms = reduce_alignment(d['alignment'])
@@ -642,9 +642,6 @@ class Alignments(Wordlist):
             d['_alignment'] = ralms
             for idx, alm in zip(d['ID'], d['_alignment']):
                 D[idx] = alm
-        for k in self:
-            if k not in D:
-                D[k] = ['']
         self.add_entries('_alignment', D, lambda x: x)
 
     def _msa2col(self, ref='cogid'):

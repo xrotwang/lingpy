@@ -5,6 +5,7 @@ from __future__ import unicode_literals
 from itertools import product
 
 from six import text_type
+from mock import patch, Mock
 
 from lingpy import Alignments, MSA, PSA
 import lingpy as lp
@@ -16,16 +17,20 @@ from lingpy.thirdparty.cogent.tree import TreeNode
 class TestPSA(WithTempDir):
     def test_output(self):
         fpsa = self.tmp_path('test.psa')
-        write_text_file(fpsa, '\n')
+        write_text_file(fpsa, 'HEADER\nline\n')
         psa = PSA(text_type(fpsa))
         fname = text_type(self.tmp_path('test'))
         psa.output(fileformat='psa', filename=fname)
 
         psq = self.tmp_path('test.psq')
         write_text_file(psq, '\n')
-        psa = PSA(text_type(psq))
+        PSA(text_type(psq))
+
+        psa = PSA(test_data('harry_potter.psa'))
         fname = text_type(self.tmp_path('test'))
         psa.output(fileformat='psq', filename=fname)
+        psa.align()
+        psa.output(fileformat='psa', filename=fname)
 
 
 class TestMSA(WithTempDir):
@@ -37,14 +42,25 @@ class TestMSA(WithTempDir):
         fname = text_type(self.tmp_path('test'))
         for fmt in 'msa psa msq html tex'.split():
             for s, u in product([True, False], [True, False]):
-                msa.output(fileformat=fmt, filename=fname, sorted_seqs=s, unique_seqs=u)
+                msa.output(
+                    timestamp=True,
+                    fileformat=fmt,
+                    filename=fname,
+                    sorted_seqs=s,
+                    unique_seqs=u)
 
 
 class TestAlignments(WithTempDir):
     def setUp(self):
         WithTempDir.setUp(self)
         self.alm = Alignments(test_data('KSL2.qlc'), loans=False, _interactive=False)
-    
+
+    def test_init(self):
+        log = Mock(deprecated=Mock())
+        with patch('lingpy.align.sca.log', log):
+            Alignments(test_data('KSL2.qlc'), cognates='cogid')
+        assert log.deprecated.called
+
     def test_ipa2tokens(self):
         # iterate over the keys
         for key in self.alm:  # .get_list(language="Turkish",flat=True):
@@ -95,7 +111,21 @@ class TestAlignments(WithTempDir):
             [''.join(x) for x in self.alm.get_list(
                 language="Turkish", entry="tokens", flat=True)])
 
+    def test_get_consensus2(self):
+        from lingpy.align.sca import get_consensus
+
+        def get_msa():
+            msa = MSA(test_data('harry.msa'))
+            msa.prog_align()
+            return msa
+
+        get_consensus(get_msa())
+        get_consensus(get_msa(), local='peaks')
+        get_consensus(get_msa(), local='gaps')
+        get_consensus(get_msa(), classes=True, mode='maximize')
+
     def test_output(self):
         self.alm.align()
         self.alm.output('qlc', filename=text_type(self.tmp_path('test')))
+        self.alm.output('psa', filename=text_type(self.tmp_path('test')))
         self.alm.output('html', filename=text_type(self.tmp_path('test')))

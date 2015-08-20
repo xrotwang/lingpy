@@ -10,6 +10,8 @@ perspective deals with aligned sequences.
 """
 from __future__ import print_function, division, unicode_literals
 import os
+from collections import defaultdict, Counter
+from itertools import combinations
 
 from six import text_type
 
@@ -141,11 +143,9 @@ class MSA(Multiple):
             for seq in self.seqs]
 
         # define the scoring dictionaries according to the methods
-        aligned_seqs = [alm for alm in self.alm_matrix]
-        for i in range(len(aligned_seqs)):
+        for i, aligned_seq in enumerate(self.alm_matrix):
             self.classes.append(list(
-                ''.join(
-                    class2tokens(class_strings[i], aligned_seqs[i])).replace('-', 'X')))
+                ''.join(class2tokens(class_strings[i], aligned_seq)).replace('-', 'X')))
 
     def output(
             self,
@@ -199,21 +199,20 @@ class MSA(Multiple):
         # create a specific format string in order to receive taxa of equal length
         mtax = max([len(t) for t in self.taxa])
         txf = '{0:.<' + text_type(mtax) + '}'
-        
+
         with util.TextFile((filename or self.infile) + '.' + fileformat) as out:
             # start writing data to file
-            out.write(self.dataset + '\n')
+            out.writeline(self.dataset)
 
             if fileformat in ['msq', 'msa']:
-                out.write(self.seq_id + '\n')
+                out.writeline(self.seq_id)
 
             if not sorted_seqs or fileformat == 'psa':
                 for i, taxon in enumerate(self.taxa):
                     if fileformat == 'msq':
-                        out.write(txf.format(taxon) + '\t' + self.seqs[i] + '\n')
+                        out.writeline(txf.format(taxon), self.seqs[i])
                     elif fileformat == 'msa':
-                        out.write(txf.format(taxon) + '\t')
-                        out.write('\t'.join(self.alm_matrix[i]) + '\n')
+                        out.writeline(txf.format(taxon), *self.alm_matrix[i])
                     elif fileformat == 'psa':
                         if not hasattr(self, 'alignments'):
                             self.get_pairwise_alignments(new_calc=False)
@@ -226,17 +225,11 @@ class MSA(Multiple):
                                 except:
                                     almB, almA, score = self.alignments[j, i]
                             
-                                out.write('{0} ({1}, {2})\n'.format(
-                                    self.seq_id,
-                                    taxon,
-                                    taxonB))
-                                out.write(txf.format(taxon) + '\t')
-                                out.write('\t'.join(almA) + '\n')
-                                out.write(txf.format(taxonB) + '\t')
-                                out.write('\t'.join(almB) + '\n')
-                                out.write('{0} {1:.2f}\n\n'.format(
-                                    self.comment,
-                                    score))
+                                out.writeline('{0} ({1}, {2})'.format(
+                                    self.seq_id, taxon, taxonB))
+                                out.writeline(txf.format(taxon), *almA)
+                                out.writeline(txf.format(taxonB), *almB)
+                                out.write('{0} {1:.2f}\n\n'.format(self.comment, score))
             elif sorted_seqs:
                 if fileformat == 'msa':
                     alms = ['\t'.join(alm) for alm in self.alm_matrix]
@@ -256,57 +249,52 @@ class MSA(Multiple):
 
                 for taxon, alm in taxalms:
                     if fileformat not in ['html', 'tex']:
-                        out.write(txf.format(taxon) + '\t' + alm + '\n')
+                        out.writeline(txf.format(taxon), alm)
 
             if fileformat == 'msa':
                 if hasattr(self, 'local'):
                     if self.local:
-                        out.write(txf.format("LOCAL") + '\t')
-                        tmp = ['.'] * len(self.alm_matrix[0])
-                        for i in self.local:
-                            tmp[i] = '*'
-                        out.write('\t'.join(tmp) + '\n')
+                        tmp = ['*' if i in self.local else '.'
+                               for i in range(len(self.alm_matrix[0]))]
+                        out.writeline(txf.format("LOCAL"), *tmp)
 
                 if hasattr(self, 'swaps'):
                     if self.swaps:
-                        out.write(txf.format('SWAPS') + '\t')
                         tmp = ['.'] * len(self.alm_matrix[0])
                         for i in self.swaps:
                             tmp[i[0]] = '+'
                             tmp[i[1]] = '-'
                             tmp[i[2]] = '+'
-                        out.write('\t'.join(tmp) + '\n')
+                        out.writeline(txf.format('SWAPS'), *tmp)
+
                 if hasattr(self, 'merge'):
                     if len(set(self.merge.values())) < len(set(self.merge.keys())):
-                        out.write(txf.format('MERGE') + '\t')
                         tmp = ['.'] * len(self.alm_matrix[0])
                         start = False
                         before = 1
                         for k in sorted(self.merge):
-                            if self.merge[k] == before and not start:
-                                tmp[k - 1] = '<'
-                                start = True
-                            if self.merge[k] == before and start:
-                                tmp[k] = '-'
-                            if self.merge[k] != before and start:
-                                start = False
-                                tmp[k - 1] = '>'
+                            if self.merge[k] == before:
+                                if not start:
+                                    tmp[k - 1] = '<'
+                                    start = True
+                                else:
+                                    tmp[k] = '-'
+                            else:  # self.merge[k] != before
+                                if start:
+                                    start = False
+                                    tmp[k - 1] = '>'
                                 before += 1
-                            elif self.merge[k] != before and not start:
-                                before += 1
-                        out.write('\t'.join(tmp) + '\n')
+                        out.writeline(txf.format('MERGE'), *tmp)
                 if hasattr(self, 'proto'):
-                    out.write(txf.format('PROTO') + '\t')
-                    out.write('\t'.join(self.proto) + '\n')
+                    out.writeline(txf.format('PROTO'), *self.proto)
                 if hasattr(self, 'consensus'):
-                    out.write(txf.format("CONSE") + '\t')
-                    out.write('\t'.join(self.consensus) + '\n')
+                    out.writeline(txf.format("CONSE"), *self.consensus)
 
             if keywords['timestamp']:
-                out.write('# Created using LingPy\n')
+                out.writeline('# Created using LingPy')
                 if hasattr(self, 'params'):
-                    out.write('# Parameters: ' + self.params + '\n')
-                out.write('# Created: {0}\n'.format(rcParams['timestamp']))
+                    out.writeline('# Parameters: ' + self.params)
+                out.writeline('# Created: {0}'.format(rcParams['timestamp']))
 
 
 class PSA(Pairwise):
@@ -392,8 +380,7 @@ class PSA(Pairwise):
                 handle_data(data, i)
                 i += 4
             except:
-                log.warn(
-                    "Line " + text_type(i + 1) + " of the data is probably miscoded.")
+                log.warn("Line {0} of the data is probably miscoded.".format(i + 1))
                 i += 1
 
         self.pair_num = len(self.pairs)
@@ -403,7 +390,6 @@ class PSA(Pairwise):
         """
         Load a ``psa``-file.
         """
-
         almA = data[i + 1].split('\t')
         almB = data[i + 2].split('\t')
         taxonA = almA.pop(0)
@@ -565,15 +551,10 @@ class Alignments(Wordlist):
             log.deprecated('cognates', 'ref')
             ref = keywords['cognates']
         
-        # change ref to rcParams
-        if ref != rcParams['ref']:
-            rcParams['ref'] = ref
+        rcParams['ref'] = ref
 
         # check for cognate-id or alignment-id in header
-        try:
-            self.etd = {ref: self.get_etymdict(ref=ref, loans=loans)}
-        except:
-            raise ValueError("Did not find a cognate ID in the input file.")
+        self.etd = {ref: self.get_etymdict(ref=ref, loans=loans)}
 
         # store loan-status
         self._loans = loans
@@ -589,11 +570,10 @@ class Alignments(Wordlist):
             if 'strings' in keywords:
                 try:
                     stridx = self.header[keywords['strings']]
-                except:
-                    log.warn("No valid source for strings could be found.")
+                except KeyError:
+                    raise ValueError("No valid source for strings could be found.")
             else:
-                log.warn("No valid source for strings could be found.")
-                return 
+                raise ValueError("No valid source for strings could be found.")
 
         # create the alignments by assembling the ids of all sequences
         if 'msa' not in self._meta:
@@ -607,23 +587,17 @@ class Alignments(Wordlist):
                 for t in tmp:
                     seqids += t
                 if len(seqids) > 1:
-                    
                     # set up the dictionary
-                    d = {}
-                    d['taxa'] = []
-                    d['seqs'] = []
+                    d = {'taxa': [], 'seqs': [], 'ID': [], 'alignment': []}
                     d['dataset'] = os.path.split(os.path.splitext(self.filename)[0])[1]
-                    d['ID'] = []
-                    d['alignment'] = []
                     if 'concept' in self.header:
-                        concept = self[seqids[0], 'concept']
-                        d['seq_id'] = '{0} ("{1}")'.format(key, concept)
+                        d['seq_id'] = '{0} ("{1}")'.format(
+                            key, self[seqids[0], 'concept'])
                     else:
                         d['seq_id'] = '{0}'.format(key)
                     
                     # set up the data
                     for seq in seqids:
-                        taxon = self[seq, 'taxa']
                         string = self[seq][stridx]
                         d['ID'] += [seq]
                         d['taxa'] += [self[seq, 'taxa']]
@@ -631,13 +605,10 @@ class Alignments(Wordlist):
                         if 'alignment' in self.header:
                             d['alignment'] += [self[seq, 'alignment']]
                         else:
-                            if isinstance(string, text_type):
-                                d['alignment'] += [string.split(' ')]
-                            else:
-                                d['alignment'] += [string]
-                                
+                            d['alignment'].append(string.split()
+                                                  if isinstance(string, text_type)
+                                                  else string)
                     d['alignment'] = normalize_alignment(d['alignment'])
-                        
                     self._meta['msa'][ref][key] = d
     
     def reduce_alignments(self, ref='cogid'):
@@ -665,7 +636,6 @@ class Alignments(Wordlist):
         D = {}
 
         for k, d in self._meta['msa'][ref].items():
-            
             ralms = reduce_alignment(d['alignment'])
             if len(ralms[0]) != len(d['alignment'][0]):
                 log.warn('Found an alignment that could be reduced.')
@@ -891,7 +861,6 @@ class Alignments(Wordlist):
             Determine the weight assigned to matches containing gaps.
 
         """
-        
         corrs = confidence.get_confidence(self, scorer, ref, gap_weight)
         log.info("Successfully calculated confidence values for alignments.")
         return corrs
@@ -956,18 +925,12 @@ class Alignments(Wordlist):
         # check for deprecated "cognates"
         if 'cognates' in keywords:
             log.deprecated('cognates', 'ref')
-            ref = keywords['cognates']
+            keywords['ref'] = keywords['cognates']
 
-        # switch ref
-        if keywords['ref'] != rcParams['ref']:
-            rcParams['ref'] = keywords['ref']
-
-        # reassing ref for convenience
-        ref = keywords['ref']
+        ref = rcParams['ref'] = keywords['ref']
 
         # check for existing alignments
-        test = list(self.msa[ref].keys())[0]
-        if 'alignment' not in self.msa[ref][test]:
+        if 'alignment' not in self.msa[ref][list(self.msa[ref].keys())[0]]:
             log.error(
                 "No alignments could be found. You should carry out"
                 " an alignment analysis first!")
@@ -987,10 +950,8 @@ class Alignments(Wordlist):
                         classes = []
                         if weights:
                             keywords['weights'] = prosodic_weights(
-                                prosodic_string(
-                                    self.msa[ref][cog]['_sonority_consensus']
-                                    )
-                                )
+                                prosodic_string(self.msa[ref][cog]['_sonority_consensus'])
+                            )
                         else:
                             keywords['weights'] = [
                                 1.0 for i in range(len(self.msa[ref][cog]['alignment']))]
@@ -1000,37 +961,25 @@ class Alignments(Wordlist):
                                    tokens2class(alm, keywords['model']) if c != '0']
                             cls = class2tokens(cls, alm)
                             classes += [cls]
+                        classes = misc.transpose(classes)
 
-                        cons = get_consensus(
-                            self.msa[ref][cog]['alignment'],
-                            classes=misc.transpose(classes),
-                            tree=tree,
-                            gaps=gaps,
-                            taxa=[text_type(taxon.replace("(","").replace(")",""))
-                                  for taxon in self.msa[ref][cog]['taxa']],
-                            **keywords)
-                        classes = True
-                    else:
-                        cons = get_consensus(
-                            self.msa[ref][cog]['alignment'],
-                            classes=classes,
-                            tree=tree,
-                            gaps=gaps,
-                            taxa=[text_type(taxon.replace("(","").replace(")",""))
-                                  for taxon in self.msa[ref][cog]['taxa']],
-                            **keywords)
+                    cons = get_consensus(
+                        self.msa[ref][cog]['alignment'],
+                        classes=classes,
+                        tree=tree,
+                        gaps=gaps,
+                        taxa=[text_type(taxon.replace("(","").replace(")",""))
+                              for taxon in self.msa[ref][cog]['taxa']],
+                        **keywords)
                     self.msa[ref][cog]["consensus"] = cons
-
                 # if there's no msa for a given cognate set, this set is a
                 # singleton
                 else:
                     cons = self[[k[0] for k in self.etd[ref][cog]
                                  if k != 0][0], counterpart]
             
-                # add consensus to dictionary
                 cons_dict[cog] = cons
 
-        # add the entries
         self.add_entries(
             consensus, ref, lambda x: cons_dict[x], override=not self._interactive)
 
@@ -1040,7 +989,7 @@ class Alignments(Wordlist):
 
         Parameters
         ----------
-        fileformat : {"qlc", "msa", "tre","nwk","dst", "taxa", "starling", "paps.nex", \
+        fileformat : {"qlc", "tre","nwk","dst", "taxa", "starling", "paps.nex", \
         "paps.csv" "html"}
             The format that is written to file. This corresponds to the file
             extension, thus 'csv' creates a file in csv-format, 'dst' creates
@@ -1113,21 +1062,18 @@ class Alignments(Wordlist):
             log.deprecated('cognates', 'ref')
             ref = kw['cognates']
 
-        if ref != rcParams['ref']:
-            rcParams['ref'] = ref
+        rcParams['ref'] = ref
 
-        if fileformat not in ['alm', 'msa']:
+        if fileformat not in ['alm']:
             return self._output(fileformat, **kw)
         
         if fileformat == 'alm':
-
             # define the string to which the stuff is written
             out = self.filename + '\n'
             
             # get a dictionary for concept-ids
             concept2id = dict(
                 zip(self.concepts, [i + 1 for i in range(len(self.concepts))]))
-            idx = 1
             for concept in self.concepts:
                 out += '\n'
                 indices = self.get_list(row=concept, flat=True)
@@ -1140,7 +1086,6 @@ class Alignments(Wordlist):
                     if cogid in self.msa[ref]:
                         for i, alm in enumerate(self.msa[ref][cogid]['alignment']):
                             taxon = self.msa[ref][cogid]['taxa'][i]
-                            seq = self.msa[ref][cogid]['seqs'][i]
                             cid = concept2id[concept]
                             # add this line for alignments containing loans
                             real_cogid = self[self.msa[ref][cogid]['ID'][i], ref]
@@ -1160,7 +1105,7 @@ class Alignments(Wordlist):
                                     taxon,
                                     concept,
                                     text_type(cid),
-                                    alm_string, #'\t'.join(alm)
+                                    alm_string,  # '\t'.join(alm)
                                 ]
                             ) + '\n'
                     else:
@@ -1181,15 +1126,6 @@ class Alignments(Wordlist):
                         ) + '\n'
 
             util.write_text_file(filename + '.' + fileformat, out)
-
-        if fileformat == 'msa':
-            for key, value in sorted(self.msa[kw['ref']].items(), key=lambda x: x[0]):
-                util.write_text_file(
-                    os.path.join(
-                        '{0}-msa'.format(value['dataset']),
-                        '{0}-{1}.msa'.format(value['dataset'], key)),
-                    msa2text_type(value, wordlist=kw['style'] in ['id', 'with_id']),
-                    log=False)
 
 
 def SCA(infile, **keywords):
@@ -1304,25 +1240,19 @@ def get_consensus(
             peaks = []
             for line in matrix:
                 sim = []
-                for i, charA in enumerate(line):
-                    for j, charB in enumerate(line):
-                        if i < j:
-                            if charA not in '-' and charB not in '-':
-                                sim += [keywords['model'](
-                                        tokens2class([charA], keywords['model'])[0],
-                                        tokens2class([charB], keywords['model'])[0]
-                                        )]
-                                a = tokens2class([charA], keywords['model'])[0]
-                                b = tokens2class([charB], keywords['model'])[0]
-
-                            else:
-                                sim += [0.0]
+                for charA, charB in combinations(line, r=2):
+                    if charA not in '-' and charB not in '-':
+                        sim.append(keywords['model'](
+                                tokens2class([charA], keywords['model'])[0],
+                                tokens2class([charB], keywords['model'])[0]
+                        ))
+                    else:
+                        sim += [0.0]
                 peaks += [sum(sim) / len(sim)]
 
             # get the average,min, and max of the peaks
             pmean = sum(peaks) / len(peaks)
             pmax = max(peaks)
-            pmin = min(peaks)
 
             # exclude those lines from matrix whose average is smaller than pmean
             i = len(matrix) - 1
@@ -1330,13 +1260,9 @@ def get_consensus(
                 if peak <= pmax - pmean - pmean / 3:
                     del matrix[i]
                 i -= 1
-        
         elif keywords['local'] == 'gaps':
             # store the number of gaps in a simple array
-            gap_array = []
-
-            for line in matrix:
-                gap_array += [line.count('-') / len(line)]
+            gap_array = [line.count('-') / len(line) for line in matrix]
 
             # we now try to get the average number of lines
             average = sum(gap_array) / len(gap_array)
@@ -1349,108 +1275,62 @@ def get_consensus(
                     del matrix[i]
                 i -= 1
 
-    # check for classes
     if classes:
         # if classes are passed as array, we use this array as is
-        if isinstance(classes, list):
-            pass
-        # if classes is a Model-object
-        elif hasattr(msa, 'ipa2cls'):
-            msa.ipa2cls(model=keywords['model'])
-            classes = misc.transpose(msa.classes)
-    
+        if not isinstance(classes, list):
+            # if classes is a Model-object
+            if hasattr(msa, 'ipa2cls'):
+                msa.ipa2cls(model=keywords['model'])
+                classes = misc.transpose(msa.classes)
+
     # if no tree is passed, it is a simple majority-rule principle that outputs
     # the consensus string
     if not tree:
         if not classes:
             for col in matrix:
-                tmp = {}
-
-                # count chars in columns
-                for j, c in enumerate(col):
-                    if c in tmp:
-                        tmp[c] += 1
-                    else:
-                        tmp[c] = 1
-
+                c = Counter(col)
                 # half the weight of gaps
-                if '-' in tmp:
-                    tmp['-'] = tmp['-'] * keywords['gap_scale']
-
-                # get maximum
-                chars = [c for c, n in sorted(
-                    tmp.items(), key=lambda x:(x[1], len(x[0])), reverse=True)]
-                
+                if '-' in c:
+                    c['-'] = c['-'] * keywords['gap_scale']
                 # append highest-scoring char
-                cons += [chars[0]]
+                cons.append(sorted(
+                    [k for k, v in c.items() if v == c.most_common(1)[0][1]],
+                    key=lambda _x: -len(_x))[0])
         elif classes:
             for i, col in enumerate(classes):
-                tmpA = {}
-                tmpB = {}
-
-                # count chars in columns
-                for j, c in enumerate(col):
-                    if c in tmpA:
-                        tmpA[c] += 1
-                    else:
-                        tmpA[c] = 1
-
-                    if matrix[i][j] in tmpB:
-                        tmpB[matrix[i][j]] += 1
-                    else:
-                        tmpB[matrix[i][j]] = 1
+                tmpA = Counter(col)
 
                 # half the weight of gaps
                 if '-' in tmpA:
                     tmpA['-'] = tmpA['-'] * keywords['gap_scale']
 
-                # get max
-                chars = [(c, n) for c, n in sorted(
-                    tmpA.items(), key=lambda x:x[1], reverse=True)]
+                chars = tmpA.most_common()
 
                 # if mode is set to 'maximize', calculate the score 
                 if keywords['mode'] == 'maximize':
                     tmpC = {}
                     for j, c in enumerate(col):
-                        if c in tmpC:
-                            pass
-                        else:
+                        if c not in tmpC:
                             score = 0
                             for k, c2 in enumerate(col):
                                 if '-' not in (c, c2):
                                     score += keywords['model'](c, c2)
-                                else:
-                                    if (c, c2) == ('-', '-'):
-                                        score += 0
-                                    else:
-                                        score += keywords['gap_score']\
-                                            * keywords['weights'][i]
+                                elif (c, c2) != ('-', '-'):
+                                    score += \
+                                        keywords['gap_score'] * keywords['weights'][i]
 
-                            score = score / len(col)
-                            tmpC[c] = score
+                            tmpC[c] = score / len(col)
 
                     chars = [(c, n) for c, n in sorted(
                         tmpC.items(), key=lambda x:(x[1], tmpA[x[0]]), reverse=True)]
 
                 # check for identical classes
-                maxV = chars.pop(0)
-
-                clss = [maxV[0]]
-                while chars:
-                    newV = chars.pop(0)
-                    if newV[1] == maxV[1]:
-                        clss += [newV[0]]
-                    else:
-                        break
-                
-                tmp = {}
+                clss = [c for c, s in chars if s == chars[0][1]]
+                tmp = defaultdict(int)
                 for j, c in enumerate(col):
                     if c in clss:
-                        if matrix[i][j] in tmp:
-                            tmp[matrix[i][j]] += 1
-                        else:
-                            tmp[matrix[i][j]] = 1
- 
+                        tmp[matrix[i][j]] += 1
+
                 # get max
                 chars = [c for c, n in sorted(
                     tmp.items(), key=lambda x:(x[1], len(x[0])), reverse=True)]
@@ -1459,13 +1339,11 @@ def get_consensus(
                 # full column, take the gaps, otherwise, take the next char
                 if chars[0] == '-':
                     if tmp['-'] > sum([tmp[x] for x in tmp if x != '-']):
-                        cchar = '-'
+                        cons.append('-')
                     else:
-                        cchar = chars[1]
+                        cons.append(chars[1])
                 else:
-                    cchar = chars[0]
-                    
-                cons += [cchar]
+                    cons.append(chars[0])
 
     # otherwise, we use a bottom-up parsimony approach to determine the best
     # match
@@ -1511,61 +1389,68 @@ def get_consensus(
         recon_alg = "sankoff_parsimony"
         for node in tree.postorder():
             node.reconstructed = []
-        if recon_alg == "modified_consensus":
-            for i in range(0, len(matrix[0])):
-                for node in tree.postorder():
-                    dist = node.distribution[i]
-                    maxValue = max(dist.values())
-                    maxKeys = [key for key in dist.keys() if dist[key] == maxValue]
-                    if len(maxKeys) == 1 or node.isRoot():
-                        node.reconstructed.append(maxKeys[0])
-                    else:         
-                        parentDist = node.Parent.distribution[i]
-                        maxKey = max(maxKeys, key=(lambda key: parentDist[key]))
-                        node.reconstructed.append(maxKey)
-        elif recon_alg == "binary_decision":
-            for i in range(0, len(matrix[0])):
-                for node in tree.postorder():
-                    if node.isTip():
-                        # just retrieve the original at the leaves
-                        dist = node.distribution[i]
-                        maxValue = max(dist.values())
-                        maxKeys = [key for key in dist.keys() if dist[key] == maxValue]
-                        node.reconstructed.append(maxKeys[0])
-                    else:
-                        leftVariant = node.Children[0].reconstructed[i]
-                        rightVariant = node.Children[1].reconstructed[i]
-                        # if one of both is '-', take the other one (preference for
-                        # segment loss)
-                        # BUT: epenthesis is allowed
-                        if leftVariant == '-' and rightVariant not in charset:
-                            node.reconstructed.append(rightVariant)
-                        elif rightVariant == '-' and leftVariant not in charset:
-                            node.reconstructed.append(leftVariant)
-                        else:
-                            # let the distribution decide otherwise
-                            dist = node.distribution[i]
-                            maxValue = max(dist.values())
-                            maxKeys = [
-                                key for key in dist.keys() if dist[key] == maxValue]
-                            if len(maxKeys) == 1 or node.isRoot():
-                                node.reconstructed.append(maxKeys[0])
-                            else:         
-                                parentDist = node.Parent.distribution[i]
-                                maxKey = max(maxKeys, key=(lambda key: parentDist[key]))
-                                node.reconstructed.append(maxKey)
-        elif recon_alg == "sankoff_parsimony":
+        # FIXME: recon_alg in ["modified_consensus", "binary_decision"] cannot be reached
+        # for now, thus it can't be tested and shouldn't be part of the code.
+        #if recon_alg == "modified_consensus":
+        #    for i in range(0, len(matrix[0])):
+        #        for node in tree.postorder():
+        #            dist = node.distribution[i]
+        #            maxValue = max(dist.values())
+        #            maxKeys = [key for key in dist.keys() if dist[key] == maxValue]
+        #            if len(maxKeys) == 1 or node.isRoot():
+        #                node.reconstructed.append(maxKeys[0])
+        #            else:
+        #                parentDist = node.Parent.distribution[i]
+        #                maxKey = max(maxKeys, key=(lambda key: parentDist[key]))
+        #                node.reconstructed.append(maxKey)
+        #elif recon_alg == "binary_decision":
+        #    for i in range(0, len(matrix[0])):
+        #        for node in tree.postorder():
+        #            if node.isTip():
+        #                # just retrieve the original at the leaves
+        #                dist = node.distribution[i]
+        #                maxValue = max(dist.values())
+        #                maxKeys = [key for key in dist.keys() if dist[key] == maxValue]
+        #                node.reconstructed.append(maxKeys[0])
+        #            else:
+        #                leftVariant = node.Children[0].reconstructed[i]
+        #                rightVariant = node.Children[1].reconstructed[i]
+        #                # if one of both is '-', take the other one (preference for
+        #                # segment loss)
+        #                # BUT: epenthesis is allowed
+        #                if leftVariant == '-' and rightVariant not in charset:
+        #                    node.reconstructed.append(rightVariant)
+        #                elif rightVariant == '-' and leftVariant not in charset:
+        #                    node.reconstructed.append(leftVariant)
+        #                else:
+        #                    # let the distribution decide otherwise
+        #                    dist = node.distribution[i]
+        #                    maxValue = max(dist.values())
+        #                    maxKeys = [
+        #                        key for key in dist.keys() if dist[key] == maxValue]
+        #                    if len(maxKeys) == 1 or node.isRoot():
+        #                        node.reconstructed.append(maxKeys[0])
+        #                    else:
+        #                        parentDist = node.Parent.distribution[i]
+        #                        maxKey = max(maxKeys, key=(lambda key: parentDist[key]))
+        #                        node.reconstructed.append(maxKey)
+        if recon_alg == "sankoff_parsimony":
+            def _5toN(_char):
+                return "N" if _char == '5' else _char
+
+            def reconstruct_by_sankoff(_node, _char, idx):
+                _node.reconstructed.append(_5toN(_char))
+                if not _node.isTip():
+                    for j in [0, 1]:
+                        reconstruct_by_sankoff(
+                            _node.Children[j], _node.sankoffPointers[idx][_char][j], idx)
+
             systematizationBonus = True
             distributionBonus = True
             for node in tree.postorder():
                 node.sankoffTable = []
                 node.sankoffPointers = []
             for i in range(0, len(matrix[0])):
-                def sankoff_value(sankoffTable, char):
-                    if char in sankoffTable.keys():
-                        return sankoffTable[char]
-                    else:
-                        return 65535  # approximation to Integer.MAX_INT
                 mtx = keywords["rep_weights"]
                 # apply the Sankoff algorithm, store backpointers
                 for node in tree.postorder():
@@ -1578,7 +1463,7 @@ def get_consensus(
                         maxKeys = [key for key in dist.keys() if dist[key] == maxValue]
                         node.sankoffTable[i][maxKeys[0]] = 0
                         if systematizationBonus:
-                            node.orig.best_replacements = {}
+                            node.orig.best_replacements = defaultdict(int)
                     else:
                         node.sankoffPointers.append(dict())
                         sankoff1 = node.Children[0].sankoffTable[i]
@@ -1593,22 +1478,20 @@ def get_consensus(
                                     bonusFactor1 = 1.0
                                     bonusFactor2 = 1.0
                                     if systematizationBonus:
-                                        if hasattr(node.Children[0].orig, "best_replacements") and char + char1 in node.Children[0].orig.best_replacements.keys():
+                                        if hasattr(node.Children[0].orig, "best_replacements") \
+                                                and char + char1 in node.Children[0].orig.best_replacements:
                                             bonusFactor1 /= 1 + node.Children[0].orig.best_replacements[char + char1]
-                                        if hasattr(node.Children[1].orig, "best_replacements") and char + char2 in node.Children[1].orig.best_replacements.keys():
+                                        if hasattr(node.Children[1].orig, "best_replacements") \
+                                                and char + char2 in node.Children[1].orig.best_replacements:
                                             bonusFactor2 /= 1 + node.Children[1].orig.best_replacements[char + char2]
                                     if distributionBonus:
                                         bonusFactor1 /= node.distribution[i][char]
                                         bonusFactor2 /= node.distribution[i][char]
-                                    char1no5 = char1
-                                    char2no5 = char2
-                                    if char1no5 == "5":
-                                        char1no5 = "N"
-                                    if char2no5 == "5":
-                                        char2no5 = "N"
-                                    proso1 = prosodic_string(recon1 + [char1no5])[-1]
-                                    proso2 = prosodic_string(recon2 + [char2no5])[-1]
-                                    sankoffValue = mtx(char, char1, proso1) * bonusFactor1 + sankoff1[char1] + mtx(char, char2, proso2) * bonusFactor2 + sankoff2[char2]
+                                    proso1 = prosodic_string(recon1 + [_5toN(char1)])[-1]
+                                    proso2 = prosodic_string(recon2 + [_5toN(char2)])[-1]
+                                    sankoffValue = \
+                                        mtx(char, char1, proso1) * bonusFactor1 + sankoff1[char1] \
+                                        + mtx(char, char2, proso2) * bonusFactor2 + sankoff2[char2]
                                     if (sankoffValue < minSankoffValue):
                                         minSankoffValue = sankoffValue
                                         backPointers[0] = char1
@@ -1617,41 +1500,29 @@ def get_consensus(
                             node.sankoffPointers[i][char] = backPointers
                         if systematizationBonus:           
                             if not hasattr(node.Children[0].orig, "best_replacements"):
-                                node.Children[0].orig.best_replacements = {}
+                                node.Children[0].orig.best_replacements = defaultdict(int)
                             if not hasattr(node.Children[1].orig, "best_replacements"):
-                                node.Children[1].orig.best_replacements = {}
+                                node.Children[1].orig.best_replacements = defaultdict(int)
                             minValue = min(node.sankoffTable[i].values())
-                            minKeys = [key for key in node.sankoffTable[i].keys() if node.sankoffTable[i][key] == minValue]
+                            minKeys = [key for key in node.sankoffTable[i].keys()
+                                       if node.sankoffTable[i][key] == minValue]
                             for char in minKeys:
                                 minValue1 = min(node.Children[0].sankoffTable[i].values())
-                                for char1 in [key for key in node.Children[0].sankoffTable[i].keys() if node.Children[0].sankoffTable[i][key]==minValue1]:
-                                    if char + char1 not in node.Children[0].orig.best_replacements.keys():
-                                        node.Children[0].orig.best_replacements[char + char1] = 1
-                                    else:
-                                        node.Children[0].orig.best_replacements[char + char1] += 1
+                                for char1 in [key for key in node.Children[0].sankoffTable[i].keys()
+                                              if node.Children[0].sankoffTable[i][key] == minValue1]:
+                                    node.Children[0].orig.best_replacements[char + char1] += 1
                                 minValue2 = min(node.Children[1].sankoffTable[i].values())
-                                for char2 in [key for key in node.Children[1].sankoffTable[i].keys() if node.Children[1].sankoffTable[i][key]==minValue2]:
-                                    if char + char2 not in node.Children[1].orig.best_replacements.keys():
-                                        node.Children[1].orig.best_replacements[char + char2] = 1
-                                    else:
-                                        node.Children[1].orig.best_replacements[char + char2] += 1
+                                for char2 in [key for key in node.Children[1].sankoffTable[i].keys()
+                                              if node.Children[1].sankoffTable[i][key] == minValue2]:
+                                    node.Children[1].orig.best_replacements[char + char2] += 1
                 # read out the backpointers for an optimal reconstruction
                 minValue = min(tree.sankoffTable[i].values())
-                minKeys = [key for key in tree.sankoffTable[i].keys() if tree.sankoffTable[i][key] == minValue]
+                minKeys = [key for key in tree.sankoffTable[i].keys()
+                           if tree.sankoffTable[i][key] == minValue]
                 reconChar = minKeys[0]
-
-                def reconstruct_by_sankoff(node, char):
-                    if char == "5":
-                        node.reconstructed.append("N")
-                    else:
-                        node.reconstructed.append(char)
-                    if not node.isTip():
-                        reconstruct_by_sankoff(node.Children[0], node.sankoffPointers[i][char][0])
-                        reconstruct_by_sankoff(node.Children[1], node.sankoffPointers[i][char][1])
-
-                reconstruct_by_sankoff(tree, reconChar)
-        else:
-            log.error("Unknown reconstruction method: " + recon_alg)
+                reconstruct_by_sankoff(tree, reconChar, i)
+        else:  # pragma: no cover
+            raise ValueError(recon_alg)
         cons = "".join(tree.reconstructed)
 
     return cons if gaps else [c for c in cons if c != '-']  # cons.replace('-','')

@@ -22,4 +22,12 @@ class Test(WithTempDir):
     def test_TextFile(self):
         with util.TextFile('test') as fp:
             fp.writelines(['line1\n', 'line2\n'])
-        self.assertEqual(len(util.read_text_file('test', lines=True)), 2)
+            fp.writeline(('a', 'b'))
+            fp.writeline(['a', 'b'])
+            fp.writeline('a', *['b', 'c'])
+            fp.writeline('a', 'b', sep='---')
+            fp.writeline('a')
+        res = util.read_text_file('test', lines=True)
+        self.assertEquals(len(res), 7)
+        self.assertEquals(len([l for l in res if '---' in l]), 1)
+        self.assertEquals(len([l for l in res if '\t' in l]), 3)

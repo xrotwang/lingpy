@@ -76,12 +76,27 @@ class TextFile(object):
         self.fp = io.open(_str_path(path, mkdir=True), 'w', encoding='utf8')
 
     def __enter__(self):
-        return self.fp
+        return self
 
     def __exit__(self, type, value, traceback):
         self.fp.close()
         if self.log:
-            get_logger().info("Data has been written to file <{0}>.".format(_str_path(self.path)))
+            get_logger().info(
+                "Data has been written to file <{0}>.".format(_str_path(self.path)))
+
+    def write(self, s):
+        return self.fp.write(s)
+
+    def writelines(self, iterable):
+        return self.fp.writelines(iterable)
+
+    def writeline(self, *cols, **kw):
+        if len(cols) == 1 and isinstance(cols[0], (list, tuple)):
+            cols = cols[0]
+        line = kw.get('sep', '\t').join(cols)
+        if not line.endswith('\n'):
+            line += '\n'
+        return self.write(line)
 
 
 def read_text_file(path, normalize=None, lines=False):

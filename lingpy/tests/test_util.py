@@ -55,3 +55,25 @@ class TestJoin(TestCase):
 
     def test_dotjoin(self):
         self.assertEqual(util.dotjoin(1, 2), '1.2')
+
+
+class TestTemplates(TestCase):
+    def test_render_template(self):
+        self.assertEqual(
+            util.render_template(
+                'wordlist_qlc', prettify=True, meta=dict(a=5)),
+            """\
+# Wordlist
+# META
+@a:5
+""")
+        self.assertEqual(
+            util.render_template(
+                'wordlist_qlc', prettify=True, taxa='abcd'),
+            """\
+# Wordlist
+# TAXA
+<taxa>
+abcd
+</taxa>
+""")

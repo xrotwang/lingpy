@@ -10,6 +10,7 @@ from functools import partial
 import json
 import itertools
 
+from mako.template import Template
 from pathlib import Path
 from six import text_type, PY3
 from six.moves import input
@@ -307,3 +308,15 @@ def jsonload(path, **kw):
         _kw['encoding'] = 'utf8'
     with open(path, **_kw) as fp:
         return json.load(fp, **kw)
+
+
+def render_template(name, output=None, **context):
+    context.update(
+        json=json,
+        tabjoin=tabjoin,
+    )
+    tmpl = Template(filename=lingpy_path('templates', name + '.mako'))
+    res = tmpl.render_unicode(**context)
+    if not output:
+        return res
+    write_text_file(output, res)

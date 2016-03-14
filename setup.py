@@ -64,8 +64,9 @@ requires = [
     'networkx',
     'numpy',
     'six',
-    'appdirs'
-    ]
+    'appdirs',
+    'mako',
+]
     
 if sys.version_info < (3, 4):
     requires.append('pathlib')

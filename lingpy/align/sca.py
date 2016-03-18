@@ -1125,53 +1125,28 @@ class Alignments(Wordlist):
             return self._output(fileformat, **kw)
 
         if fileformat == 'alm':
-            # define the string to which the stuff is written
-            out = self.filename + '\n'
-
-            # get a dictionary for concept-ids
-            concept2id = dict(
-                zip(self.concepts, [i + 1 for i in range(len(self.concepts))]))
-            for concept in self.concepts:
-                out += '\n'
-                indices = self.get_list(row=concept, flat=True)
+            def get_cogids(concept):
+                cogids = [self[i, ref] for i in self.get_list(row=concept, flat=True)]
                 if self._loans:
-                    cogids = [abs(self[i, ref]) for i in indices]
-                else:
-                    cogids = [self[i, ref] for i in indices]
-                cogids = sorted(set(cogids))
-                for cogid in cogids:
-                    if cogid in self.msa[ref]:
-                        for i, alm in enumerate(self.msa[ref][cogid]['alignment']):
-                            taxon = self.msa[ref][cogid]['taxa'][i]
-                            cid = concept2id[concept]
-                            # add this line for alignments containing loans
-                            real_cogid = self[self.msa[ref][cogid]['ID'][i], ref]
-                            if not kw['confidence']:
-                                alm_string = '\t'.join(alm)
-                            else:
-                                confs = [
-                                    '{0}'.format(x)
-                                    for x in self.msa[ref][cogid]['confidence'][i]]
-                                chars = [
-                                    x for x in self.msa[ref][cogid]['_charmat'][i]]
-                                alm_string = '\t'.join(
-                                    [a + '/' + b + '/' + c
-                                     for a, b, c in zip(alm, confs, chars)]
-                                )
+                    cogids = map(abs, cogids)
+                return sorted(set(cogids))
 
-                            out += util.tabjoin(
-                                real_cogid, taxon, concept, cid, alm_string) + '\n'
-                    else:
-                        this_idx = [x for x in self.etd[ref][cogid] if x != 0][0][0]
-                        taxon = self[this_idx, 'taxon']
-                        seq = self[this_idx, 'ipa']
-                        if not seq:
-                            seq = ' '.join(self[this_idx, 'tokens'])
-                        cid = concept2id[concept]
-                        out += util.tabjoin(
-                            cogid, taxon, concept, cid, ''.join(seq)) + '\n'
+            def get_alm_string(i, cogid):
+                alm = self.msa[ref][cogid]['alignment'][i]
+                if kw['confidence']:
+                    alm = [util.join('/', t) for t in zip(
+                        alm,
+                        self.msa[ref][cogid]['confidence'][i],
+                        self.msa[ref][cogid]['_charmat'][i])]
+                return util.tabjoin(alm)
 
-            util.write_text_file(filename + '.' + fileformat, out)
+            return util.render_template(
+                'alm_alm',
+                output=filename + '.' + fileformat,
+                ref=ref,
+                obj=self,
+                get_cogids=get_cogids,
+                get_alm_string=get_alm_string)
 
         if fileformat == 'msa':
             for key, value in sorted(self.msa[kw['ref']].items(), key=lambda x: x[0]):

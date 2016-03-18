@@ -314,9 +314,10 @@ def jsonload(path, **kw):
 
 
 def render_template(name, output=None, **context):
+    import sys
     context.update(
         json=json,
-        tabjoin=tabjoin,
+        util=sys.modules[__name__],
     )
     tmpl = Template(filename=lingpy_path('templates', name + '.mako'))
     res = tmpl.render_unicode(**context)

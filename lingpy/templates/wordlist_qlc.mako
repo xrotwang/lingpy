@@ -56,5 +56,5 @@ ${scorer2str(value)}</scorer>
     % if prettify:
 # DATA
     % endif
-${tabjoin('ID', *header)}
+${util.tabjoin('ID', *header)}
 % endif

@@ -152,6 +152,7 @@ class LexStat(Wordlist):
             "defaults": False,
             "no_bscorer": False,
             "errors": "errors.log",
+            "expand_nasals": False
         }
         kw.update(keywords)
 
@@ -171,7 +172,9 @@ class LexStat(Wordlist):
         # tokens
         if "tokens" not in self.header:
             self.add_entries(
-                "tokens", "ipa", lambda x: ipa2tokens(x, merge_vowels=kw['merge_vowels']))
+                "tokens", "ipa", lambda x: ipa2tokens(x,
+                    merge_vowels=kw['merge_vowels'],
+                    expand_nasals=kw['expand_nasals']))
 
         # add a debug procedure for tokens
         if kw["check"]:
@@ -239,8 +242,9 @@ class LexStat(Wordlist):
         # transformation, which is important for the calculation of the
         # v-scale in lexstat.get_scorer
         if 'vowels' not in self._meta:
-            self._meta['vowels'] = ' '.join(sorted(set([self._transform[v] for v
-                in 'XYZT_']))) if hasattr(self, '_transform') else 'VT_'
+            self._meta['vowels'] = ' '.join(sorted(set([
+                self._transform[v] for v in 'XYZT_']))) \
+                if hasattr(self, '_transform') else 'VT_'
 
         if "duplicates" not in self.header:
             duplicates = {}
@@ -269,9 +273,12 @@ class LexStat(Wordlist):
             if not self.chars:
                 raise ValueError("Your input data does not contain any entries!")
             self.bad_chars = [char for char in self.chars if char[2] == '0']
-            if len(self.bad_chars) / len(self.chars) > rcParams['lexstat_bad_chars_limit']:
-                raise ValueError("{0:.0f}% of the unique characters in your word list are not recognized by {1}. You should re-load with check=True!".format(
-                    100 * len(self.bad_chars) / len(self.chars), util.PROG))
+            if len(self.bad_chars) / len(self.chars) > \
+                    rcParams['lexstat_bad_chars_limit']:
+                raise ValueError(
+                    "{0:.0f}% of the unique characters in your word list are not "
+                    "recognized by {1}. You should re-load with check=True!".format(
+                        100 * len(self.bad_chars) / len(self.chars), util.PROG))
 
         if not hasattr(self, "scorer"):
             self._meta['scorer'] = {}
@@ -799,7 +806,7 @@ class LexStat(Wordlist):
         """
         kw = dict(
             method='lexstat',
-            mode="global",
+            mode="overlap",
             scale=0.5,
             factor=0.3,
             restricted_chars='_T',
@@ -1155,15 +1162,20 @@ class LexStat(Wordlist):
                     return_distance=True,
                     pprint=False,
                     gop=gop)
-                for l1, l2 in self.pairs:
-                    if l1 != l2:
-                        pairs = self.pairs[l1, l2]
-                        for p1, p2 in pairs:
-                            dx = [align(p1, pairs[random.randint(0, len(pairs) - 1)][1])
-                                  for i in range(len(pairs) // 5)]
-                            thresholds.extend(dx)
+
+                with util.ProgressBar('THRESHOLD DETERMINATION',
+                        len(self.pairs)-len(self.cols)) as progress:
+                    for l1, l2 in self.pairs:
+                        progress.update()
+                        if l1 != l2:
+                            pairs = self.pairs[l1, l2]
+                            for p1, p2 in pairs:
+                                dx = [align(p1, pairs[random.randint(0, len(pairs) - 1)][1])
+                                      for i in range(len(pairs) // 20 or 5)]
+                                thresholds.extend(dx)
             if thresholds:
-                threshold = sum(thresholds) / len(thresholds)
+                threshold = sum(thresholds) / len(thresholds) * 0.5
+                self._meta['guessed_threshold'] = threshold
 
         with util.ProgressBar('SEQUENCE CLUSTERING', len(self.rows)) as progress:
             for concept, indices, matrix in matrices:
@@ -1173,7 +1185,7 @@ class LexStat(Wordlist):
                 if kw['guess_threshold'] and kw['gt_mode'] == 'item':
                     t = clustering.best_threshold(matrix, kw['gt_trange'])
                 # FIXME: considering new function here JML
-                #elif kw['guess_threshold'] and kw['gt_mode'] == 'nullditem':
+                # elif kw['guess_threshold'] and kw['gt_mode'] == 'nullditem':
                 #    pass
                 else:
                     t = threshold
@@ -1182,7 +1194,7 @@ class LexStat(Wordlist):
 
                 # specific clustering for fuzzy methods, currently not yet
                 # supported
-                #if cluster_method in ['fuzzy']:  # ['link_communities','lc','lcl']:
+                # if cluster_method in ['fuzzy']:  # ['link_communities','lc','lcl']:
                 #    clusters = [[d + k for d in c[i]] for i in range(len(matrix))]
                 #    tests = []
                 #    for clrx in clusters:
@@ -1191,7 +1203,7 @@ class LexStat(Wordlist):
                 #    k = max(tests)
                 #    for idxA, idxB in zip(indices, clusters):
                 #        clr[idxA] = idxB
-                #else:
+                # else:
                 if 1:
                     # extract the clusters
                     clusters = [c[i] + k for i in range(len(matrix))]
